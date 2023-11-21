@@ -11,7 +11,6 @@ exports.createUser = async(req,res)=>{
     }
 }
 
-//user login
 exports.loginUser = async (req, res) => {
     try {
       const user = await User.findOne({ email: req.body.email });
