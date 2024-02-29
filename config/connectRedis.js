@@ -3,11 +3,12 @@ const redis = require('redis');
 const { promisify } = require('util');
 
 const connectRedis = () => {
-    const client = redis.createClient();
+    const client = redis.createClient({
+        url: process.env.REDIS_URI,
+    });
     (async () => {
         await client.connect();
     })();
-    console.log('cl'+JSON.stringify(client));
 
     client.on('connect', () => {
         console.log('Redis client connected');
@@ -28,6 +29,7 @@ const connectRedis = () => {
     // Promisify Redis commands
     client.getAsync = promisify(client.get).bind(client);
     client.setAsync = promisify(client.set).bind(client);
+    client.delAsync = promisify(client.del).bind(client);
 
     return client;
 };

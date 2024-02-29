@@ -1,5 +1,7 @@
 const express = require("express");
 const cors = require("cors");
+const { promisify } = require('util');
+
 const { connectDb } = require("./config/connectDb");
 const { connectRedis } = require("./config/connectRedis");
 require("dotenv").config();
@@ -16,46 +18,58 @@ app.use('/api/user', require("./routes/userRoutes"));
 //mongoDB connection
 connectDb();
 const redisClient = connectRedis();
-console.log(redisClient); // Make sure redisClient is properly initialized
 
-const cacheTask = (req, res, next) => {
+const cacheTask = async (req, res, next) => {
     const startTime = Date.now();
-    console.log('tasks'+ redisClient.isReady);
-    redisClient.isReady && redisClient.get('tasks', (err, data) => {
-        if (err) throw err;
-
-        if (data) {
-            const endTime = Date.now();
-            const latency = endTime - startTime;
-            console.log(`Cache hit: Latency ${latency}ms`);
-            res.send(JSON.parse(data));
-        } else {
+    if (redisClient.isReady) {
+        try {
+            const data = await redisClient.get('tasks');
+            if (data) {
+                const endTime = Date.now();
+                const latency = endTime - startTime;
+                console.log(`Cache hit: Latency ${latency}ms`);
+                res.send(JSON.parse(data));
+            } else {
+                next();
+            }
+        } catch (err) {
+            console.error(err);
             next();
         }
-    });
+    } else {
+        console.log('Redis client is not ready');
+        next();
+    }
 };
 
-const clearTaskCache = (req, res, next) => {
-    redisClient.del('tasks', (err, response) => {
+
+const clearTaskCache = async (req, res, next) => {
+    const data = await redisClient.del('tasks', (err, response) => {
         if (err) throw err;
         console.log('Cache cleared: ' + response);
         next();
     });
+    data? console.log('doa'):null;
 };
 
-app.get('/tasks', cacheTask,async (req, res) => {
+app.get('/tasks', cacheTask, async (req, res) => {
     try {
         const startTime = Date.now();
         const tasks = await Task.find();
-        console.log('tasks'+ redisClient.connected);
-        redisClient.connected && redisClient.set('tasks', 3600, JSON.stringify(tasks)); // Cache tasks for 1 hour
+        console.log('ready?',redisClient.isReady);
+        if (redisClient.isReady) {
+            await redisClient.set('tasks', JSON.stringify(tasks), 'EX', 3600); // Cache tasks for 1 hour
+        }
+        const endTime = Date.now();
+        const latency = endTime - startTime;
+        console.log(`Database hit: Latency ${latency}ms`);
         res.json(tasks);
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
 });
 
-app.post('/tasks', async (req, res) => {
+app.post('/tasks',clearTaskCache, async (req, res) => {
     console.log(req.body); // Make sure req.body is properly parsed
     const task = new Task({
         title: req.body.title,
