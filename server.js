@@ -25,8 +25,7 @@ const cacheTask = async (req, res, next) => {
         try {
             const data = await redisClient.get('tasks');
             if (data) {
-                const endTime = Date.now();
-                const latency = endTime - startTime;
+                const latency = Date.now() - startTime;
                 console.log(`Cache hit: Latency ${latency}ms`);
                 res.send(JSON.parse(data));
             } else {
@@ -49,7 +48,7 @@ const clearTaskCache = async (req, res, next) => {
         console.log('Cache cleared: ' + response);
         next();
     });
-    data? console.log('doa'):null;
+    data? next():null;
 };
 
 app.get('/tasks', cacheTask, async (req, res) => {
@@ -69,7 +68,7 @@ app.get('/tasks', cacheTask, async (req, res) => {
     }
 });
 
-app.post('/tasks',clearTaskCache, async (req, res) => {
+app.post('/tasks', async (req, res) => {
     console.log(req.body); // Make sure req.body is properly parsed
     const task = new Task({
         title: req.body.title,
