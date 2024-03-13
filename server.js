@@ -11,7 +11,6 @@ const Task = require('./models/Task.model');
 const app = express();
 app.use(express.json()); // Middleware to parse JSON body
 app.use(cors());
-
 //api routes
 app.use('/api/user', require("./routes/userRoutes"));
 
@@ -20,15 +19,19 @@ connectDb();
 const redisClient = connectRedis();
 
 const cacheTask = async (req, res, next) => {
-    const startTime = Date.now();
+    const { page = 1, limit = 10 } = req.query;
+    const cacheKey = `tasks_page_${page}_limit_${limit}`;
+
     if (redisClient.isReady) {
         try {
-            const data = await redisClient.get('tasks');
+            const data = await redisClient.get(cacheKey);
             if (data) {
-                const latency = Date.now() - startTime;
-                console.log(`Cache hit: Latency ${latency}ms`);
-                res.send(JSON.parse(data));
+                console.log('Cached tasks found');
+                const tasks = JSON.parse(data);
+                const paginatedTasks = paginateTasks(tasks, page, limit);
+                res.json(paginatedTasks);
             } else {
+                // Continue to the next middleware if data is not found in cache
                 next();
             }
         } catch (err) {
@@ -50,23 +53,35 @@ const clearTaskCache = async (req, res, next) => {
     });
     data? next():null;
 };
-
 app.get('/tasks', cacheTask, async (req, res) => {
     try {
         const startTime = Date.now();
+        const { page = 1, limit = 10 } = req.query;
         const tasks = await Task.find();
-        console.log('ready?',redisClient.isReady);
+
+        // Set tasks in cache for future requests
         if (redisClient.isReady) {
-            await redisClient.set('tasks', JSON.stringify(tasks), 'EX', 3600); // Cache tasks for 1 hour
+            const cacheKey = `tasks_page_${page}_limit_${limit}`;
+            await redisClient.set(cacheKey, JSON.stringify(tasks), 'EX', 3600); // Cache tasks for 1 hour
         }
+
+        const paginatedTasks = paginateTasks(tasks, page, limit);
         const endTime = Date.now();
         const latency = endTime - startTime;
         console.log(`Database hit: Latency ${latency}ms`);
-        res.json(tasks);
+        res.json(paginatedTasks);
     } catch (err) {
+        console.error(err);
         res.status(500).json({ message: err.message });
     }
 });
+
+
+function paginateTasks(tasks, page, limit) {
+    const startIndex = (page - 1) * limit;
+    const endIndex = page * limit;
+    return tasks.slice(startIndex, endIndex);
+}
 
 app.post('/tasks', async (req, res) => {
     console.log(req.body); // Make sure req.body is properly parsed
